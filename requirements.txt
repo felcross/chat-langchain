@@ -1,0 +1,22 @@
+# FinanceBot BR — dependências pinadas para reprodutibilidade no Docker
+# Atualizar versões com cautela: duckdb e langchain têm breaking changes frequentes.
+
+# Interface
+streamlit==1.45.0
+
+# LLM
+langchain-groq==0.3.2
+langchain-core==0.3.59
+
+# Banco analítico
+duckdb==1.2.2
+
+# Cache em disco
+diskcache==5.6.3
+
+# HTTP / dados
+requests==2.32.3
+pandas==2.2.3
+
+# Variáveis de ambiente
+python-decouple==3.8

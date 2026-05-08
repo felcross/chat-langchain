@@ -1,0 +1,7 @@
+.env
+finance.db
+.cache/
+query_logs.jsonl
+__pycache__/
+*.pyc
+.streamlit/
