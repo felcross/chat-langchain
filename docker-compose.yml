@@ -1,12 +1,17 @@
-finance-bot:
+services:
+  finance-bot:
     build: .
     container_name: finance-bot-app
     restart: always
     env_file:
       - .env
     volumes:
-      - ./finance.db:/app/finance.db       # Persiste o banco DuckDB
-      - ./query_logs.jsonl:/app/query_logs.jsonl # Persiste os logs
-      - ./.cache:/app/.cache               # Mantém o cache de IA
+      - ./finance.db:/app/finance.db
+      - ./query_logs.jsonl:/app/query_logs.jsonl
+      - ./.cache:/app/.cache
     networks:
       - rede_vps
+
+networks:
+  rede_vps:
+    external: true
