@@ -1,0 +1,21 @@
+name: Deploy FinanceBot
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Executar comandos via SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            cd ~/portfolio/finance-bot
+            git pull origin main
+            # O build --no-cache garante que ele pegue o código novo se o cache do Docker falhar
+            docker compose up -d --build

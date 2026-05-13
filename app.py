@@ -253,15 +253,13 @@ with st.sidebar:
 
     modo_key = "especialista" if "Especialista" in modo else "analista"
 
-    # ── limpa memória ao trocar de modo ──────────────────────────────────────
+    # Limpa memória ao trocar de modo
     if (
         st.session_state.modo_anterior
         and st.session_state.modo_anterior != modo_key
     ):
-
         if modo_key == "especialista":
             limpar_memoria_csv()
-
         elif modo_key == "analista":
             limpar_conversa_especialista()
 
@@ -284,23 +282,19 @@ with st.sidebar:
         else:
             st.caption("⚠️ Banco não populado. Clique em Atualizar.")
 
+        # ✅ CORRIGIDO: width="stretch" → use_container_width=True
         if st.button(
             "🔄 Atualizar dados do BCB",
             type="primary",
-            width="stretch",
+            use_container_width=True,
         ):
-
             with st.spinner("Coletando dados do Banco Central..."):
-
                 try:
                     run_etl()
                     cache_manager.invalidar_cache()
-
                     st.success("✅ Dados atualizados!")
                     st.rerun()
-
                 except Exception as e:
-                    limpar_memoria_csv()
                     st.error(f"❌ Falha: {e}")
 
         st.divider()
@@ -308,53 +302,31 @@ with st.sidebar:
         health = db_manager.db_health()
 
         if health.get("ok"):
-
             snap = db_manager.get_snapshot_atual()
-
             if snap:
-
                 col1, col2 = st.columns(2)
-
-                col1.metric(
-                    "SELIC a.a.",
-                    f"{snap.get('selic_ano', '—')}%",
-                    help=f"Ref: {snap.get('selic_data', '')}",
-                )
-
-                col2.metric(
-                    "IPCA (mês)",
-                    f"{snap.get('ipca_mes', '—')}%",
-                    help=f"Ref: {snap.get('ipca_data', '')}",
-                )
-
-                col1.metric(
-                    "CDI a.a.",
-                    f"{snap.get('cdi_ano', '—')}%",
-                    help=f"Ref: {snap.get('cdi_data', '')}",
-                )
-
-                col2.metric(
-                    "BRL/USD",
-                    f"R$ {snap.get('cambio', '—')}",
-                    help=f"Ref: {snap.get('cambio_data', '')}",
-                )
-
+                col1.metric("SELIC a.a.", f"{snap.get('selic_ano', '—')}%",
+                            help=f"Ref: {snap.get('selic_data', '')}")
+                col2.metric("IPCA (mês)", f"{snap.get('ipca_mes', '—')}%",
+                            help=f"Ref: {snap.get('ipca_data', '')}")
+                col1.metric("CDI a.a.",   f"{snap.get('cdi_ano', '—')}%",
+                            help=f"Ref: {snap.get('cdi_data', '')}")
+                col2.metric("BRL/USD",    f"R$ {snap.get('cambio', '—')}",
+                            help=f"Ref: {snap.get('cambio_data', '')}")
         else:
             st.info("📌 Atualize os dados para ver os indicadores.")
 
         st.divider()
-
         st.subheader("⚙️ Opções")
 
+        # ✅ CORRIGIDO: key único para o toggle do Especialista
         st.session_state.show_sql = st.toggle(
             "🔍 Mostrar SQL gerado",
             value=st.session_state.show_sql,
+            key="toggle_sql_esp",
         )
 
-        if st.button(
-            "🗑️ Limpar conversa",
-            use_container_width=True,
-        ):
+        if st.button("🗑️ Limpar conversa", use_container_width=True, key="btn_limpar_esp"):
             limpar_conversa_especialista()
             st.rerun()
 
@@ -376,30 +348,22 @@ with st.sidebar:
         )
 
         if arquivo:
-
             try:
-
-                # evita reprocessar o mesmo arquivo a cada rerun
-                if (
-                    st.session_state.arquivo_nome != arquivo.name
-                ):
-
+                # Evita reprocessar o mesmo arquivo a cada rerun
+                if st.session_state.arquivo_nome != arquivo.name:
                     df_bruto = pd.read_csv(arquivo)
 
                     with st.spinner("🔍 Analisando estrutura do CSV..."):
                         contexto = analisar_csv(df_bruto)
 
-                    st.session_state.df_csv = contexto["df_convertido"]
-                    st.session_state.contexto_csv = contexto
-
-                    st.session_state.sugestoes = []
+                    st.session_state.df_csv         = contexto["df_convertido"]
+                    st.session_state.contexto_csv   = contexto
+                    st.session_state.sugestoes      = []
                     st.session_state.sugestao_ativa = None
-
-                    st.session_state.arquivo_nome = arquivo.name
+                    st.session_state.arquivo_nome   = arquivo.name
 
                 st.success(
-                    f"✅ "
-                    f"{st.session_state.contexto_csv['n_linhas']:,} linhas · "
+                    f"✅ {st.session_state.contexto_csv['n_linhas']:,} linhas · "
                     f"{st.session_state.contexto_csv['n_colunas']} colunas"
                 )
 
@@ -407,37 +371,22 @@ with st.sidebar:
                 st.error(f"❌ Erro ao ler CSV: {e}")
 
         st.divider()
-
         st.subheader("⚙️ Opções")
 
+        # ✅ CORRIGIDO: key único para o toggle do Analista
         st.session_state.show_sql = st.toggle(
             "🔍 Mostrar SQL gerado",
             value=st.session_state.show_sql,
+            key="toggle_sql_ana",
             help="Exibe o SQL executado em cada análise.",
         )
 
-        if st.button(
-            "🗑️ Limpar CSV da memória",
-            use_container_width=True,
-        ):
-
+        if st.button("🗑️ Limpar CSV da memória", use_container_width=True, key="btn_limpar_ana"):
             limpar_memoria_csv()
             st.rerun()
-    st.divider()
 
-    # ── Opções gerais ──────────────────────────────────────────────────────────
-    st.subheader("⚙️ Opções")
-
-    st.session_state.show_sql = st.toggle(
-        "🔍 Mostrar SQL gerado",
-        value=st.session_state.show_sql,
-        help="Exibe o SQL executado em cada análise.",
-    )
-
-    if modo_key == "especialista":
-        if st.button("🗑️ Limpar conversa", use_container_width=True):
-            st.session_state.messages_esp = []
-            st.rerun()
+    # ── FIM DA SIDEBAR ─────────────────────────────────────────────────────────
+    # ✅ REMOVIDO: bloco duplicado de "⚙️ Opções" que estava aqui causando o erro
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -559,7 +508,7 @@ else:
                 label = f"{'▶ ' if ativo else ''}{sug['titulo']}"
                 if st.button(label, key=f"sug_{i}", use_container_width=True):
                     st.session_state.sugestao_ativa = i
-                    
+                    st.rerun()
 
     # ── RESULTADO DA SUGESTÃO SELECIONADA ──────────────────────────────────────
     idx_ativo = st.session_state.get("sugestao_ativa")
