@@ -13,13 +13,15 @@ Por que centralizar aqui?
 """
 
 import logging
+from pathlib import Path
 
 import duckdb
 import pandas as pd
 
 log = logging.getLogger(__name__)
 
-DB_PATH = "finance.db"
+BASE_DIR = Path(__file__).resolve().parent
+DB_PATH = str(BASE_DIR / "finance.db")
 
 # ── Schema descritivo para o LLM ──────────────────────────────────────────────
 # Este texto é injetado no system prompt do agente SQL.
