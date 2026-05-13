@@ -6,7 +6,7 @@ services:
     env_file:
       - .env
     volumes:
-      - ./finance.db:/app/finance.db
+     
       - ./query_logs.jsonl:/app/query_logs.jsonl
       - ./.cache:/app/.cache
     networks:
