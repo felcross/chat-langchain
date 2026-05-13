@@ -348,6 +348,8 @@ with st.sidebar:
         )
 
         if arquivo:
+            
+                
             try:
                 # Evita reprocessar o mesmo arquivo a cada rerun
                 if st.session_state.arquivo_nome != arquivo.name:
@@ -406,7 +408,7 @@ if modo_key == "especialista":
             if msg["role"] == "assistant" and st.session_state.show_sql and msg.get("sql"):
                 with st.expander("🔍 SQL gerado"):
                     st.code(msg["sql"], language="sql")
-
+    
     esp_sem_dados = not db_manager.db_health().get("ok")
     if esp_sem_dados:
         st.warning("⚠️ Clique em **Atualizar dados do BCB** na sidebar antes de perguntar.")
@@ -441,46 +443,60 @@ else:
 
     st.header("📊 Modo Analista — Seus Dados")
 
-    contexto  = st.session_state.get("contexto_csv")
-    df_csv    = st.session_state.get("df_csv")
+    contexto = st.session_state.get("contexto_csv")
+    df_csv = st.session_state.get("df_csv")
     sugestoes = st.session_state.get("sugestoes", [])
 
     if contexto is None:
-        st.info("📌 Envie um arquivo CSV na sidebar para começar.")
+        st.info("📌 Envie um arquivo CSV na sidebar para começar. Limite: 5 MB.")
         st.stop()
 
-    # ── PAINEL DE CONTEXTO ─────────────────────────────────────────────────────
     with st.expander("🔍 O que encontramos no seu CSV", expanded=True):
 
         c1, c2 = st.columns(2)
-        c1.metric("Linhas",  f"{contexto['n_linhas']:,}")
+        c1.metric("Linhas", f"{contexto['n_linhas']:,}")
         c2.metric("Colunas", f"{contexto['n_colunas']}")
+
         st.divider()
 
         rows = []
+
         for col, info in contexto["colunas"].items():
             tipo = info["tipo"].upper()
+
             if tipo == "DATA":
-                detalhe = f"{info['min']} → {info['max']}"
+               detalhe = f"{info['min']} → {info['max']}"
+
             elif tipo == "NUMERICA":
-                detalhe = f"min {info['min']} · max {info['max']} · média {info['media']}"
+                 detalhe = (
+                 f"min {info['min']} · "
+                 f"max {info['max']} · "
+                 f"média {info['media']}"
+                )
+
             elif tipo == "CATEGORICA":
-                vals = ", ".join(info["valores"][:5])
-                detalhe = f"{vals}{'...' if info['truncado'] else ''}"
+                 vals = ", ".join(info["valores"][:5])
+                 detalhe = f"{vals}{'...' if info['truncado'] else ''}"
+
             else:
-                detalhe = f"{info['n_unicos']} valores únicos"
+                 detalhe = f"{info['n_unicos']} valores únicos"
 
             rows.append({
-                "Coluna":  col,
-                "Tipo":    tipo,
+                "Coluna": col,
+                "Tipo": tipo,
                 "Detalhe": detalhe,
-                "Nulos":   info["nulos"],
-            })
+                "Nulos": info["nulos"],
+                })
+        
+        st.dataframe(
+            pd.DataFrame(rows),
+            use_container_width=True,
+            hide_index=True
+        )
 
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-
-        with st.expander("👀 Primeiras linhas do CSV"):
-            st.dataframe(df_csv.head(10), use_container_width=True)
+    # FORA do primeiro expander
+    with st.expander("👀 Primeiras linhas do CSV"):
+        st.dataframe(df_csv.head(10), use_container_width=True)
 
     # ── SUGESTÕES ──────────────────────────────────────────────────────────────
     st.subheader("💡 Análises sugeridas")
