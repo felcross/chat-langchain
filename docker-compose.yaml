@@ -5,6 +5,7 @@ services:
     build: .
     networks:
       - docNet
+      - rede_vps        # conecta na rede do nginx-proxy-manager
     ports:
       - "8501:8501"
     env_file:
@@ -13,12 +14,9 @@ services:
       redis:
         condition: service_healthy
     volumes:
-      # Vectorstore persistido
       - ./vectorstore_data:/app/vectorstore
-      # Arquivos RAG (opcional — usado se quiser pré-carregar PDFs)
       - ./rag_files:/app/rag_files
-      # Modelo HF local (mesmo path do Chatbot WhatsApp)
-      - /home/fcross/hf_models:/app/hf_models
+      - /root/hf_models:/app/hf_models
     restart: unless-stopped
 
   redis:
@@ -26,8 +24,6 @@ services:
     image: redis:7-alpine
     networks:
       - docNet
-    ports:
-      - "6380:6379"          # porta externa diferente para não conflitar com outros projetos
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -35,19 +31,8 @@ services:
       retries: 5
     restart: unless-stopped
 
-  nginx:
-    container_name: doc_nginx
-    image: nginx:alpine
-    networks:
-      - docNet
-    ports:
-      - "80:80"
-    volumes:
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-    depends_on:
-      - app
-    restart: unless-stopped
-
 networks:
   docNet:
     driver: bridge
+  rede_vps:
+    external: true
