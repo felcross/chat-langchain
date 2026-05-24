@@ -1,0 +1,20 @@
+name: Deploy Doc Analista
+
+on:
+  push:
+    branches: [ doc-analista ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Executar comandos via SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            cd ~/portfolio/doc-analista
+            git pull origin doc-analista
+            docker compose up -d --build
