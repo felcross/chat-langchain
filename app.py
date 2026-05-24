@@ -1,8 +1,6 @@
 """
 app.py — Interface principal do doc-analista (Streamlit).
 
-Modo único: Analista de Documentos.
-
 Fluxo CSV:
     upload → analisar_csv() → painel de contexto
     → gerar_sugestoes() [Groq + cache Redis]
@@ -10,20 +8,21 @@ Fluxo CSV:
     → tabela + gráfico
 
 Fluxo PDF:
-    upload → vectorstore.py [PyMuPDF → clean → embed → Chroma]
+    upload → build_vectorstore() [PyMuPDF → clean → embed → Chroma em dir temporário]
     → gerar_insights_pdf() [Groq]
     → painel de insights
     → [fase 2] chat livre
 
 Estado MCP:
-    Após processar qualquer documento, grava JSON temporário com paths
-    para que o mcp_server.py (subprocess stdio) acesse os dados.
+    Após processar PDF, grava JSON com vs_dir para que o mcp_server.py acesse.
+    limpar_sessao() apaga o vs_dir do disco.
 """
 
 import hashlib
 import json
 import logging
 import os
+import shutil
 import tempfile
 import uuid
 from pathlib import Path
@@ -41,7 +40,7 @@ from analista import (
     renderizar_resultado,
 )
 from chains import gerar_insights_pdf, get_base_rag_chain
-from config import GROQ_API_KEY, MODEL_NAME, VECTOR_STORE_PATH
+from config import GROQ_API_KEY, MODEL_NAME
 from query_logger import QueryLogger
 
 os.environ["GROQ_API_KEY"] = GROQ_API_KEY
@@ -61,19 +60,14 @@ def get_llm() -> ChatGroq:
 
 
 def _file_id(name: str, size: int) -> str:
-    """ID determinístico para um arquivo — usado como vectorstore_id e chave de cache."""
+    """ID determinístico para um arquivo — usado como chave de cache."""
     return hashlib.md5(f"{name}|{size}".encode()).hexdigest()
-
-
-def _vs_path(file_id: str) -> str:
-    """Caminho do Chroma persistido para um arquivo específico."""
-    return str(Path(VECTOR_STORE_PATH) / file_id)
 
 
 def _gravar_estado_mcp(state: dict) -> str:
     """
-    Grava o estado da sessão em arquivo JSON temporário para o mcp_server.py.
-    Retorna o path do arquivo para setar em DOC_ANALISTA_STATE.
+    Grava o estado da sessão em JSON temporário para o mcp_server.py.
+    Seta DOC_ANALISTA_STATE com o path do arquivo.
     """
     tmp = tempfile.NamedTemporaryFile(
         mode="w", suffix=".json", delete=False, encoding="utf-8"
@@ -85,11 +79,17 @@ def _gravar_estado_mcp(state: dict) -> str:
 
 
 def limpar_sessao() -> None:
+    # Apaga o dir do Chroma do disco antes de limpar o session_state
+    vs_dir = st.session_state.get("vs_dir")
+    if vs_dir and os.path.exists(vs_dir):
+        shutil.rmtree(vs_dir, ignore_errors=True)
+        log.info(f"Vectorstore temporário removido: {vs_dir}")
+
     keys = [
         "tipo_arquivo", "arquivo_nome", "arquivo_id",
         "df_csv", "contexto_csv",
         "sugestoes", "sugestao_ativa",
-        "vectorstore", "insights_pdf",
+        "vectorstore", "vs_dir", "insights_pdf",
         "show_sql", "session_id",
         "_mcp_state_file",
     ]
@@ -104,17 +104,18 @@ def limpar_sessao() -> None:
 st.set_page_config(page_title="Doc Analista", page_icon="🔍", layout="wide")
 
 defaults = {
-    "tipo_arquivo":  None,   # "csv" | "pdf"
-    "arquivo_nome":  None,
-    "arquivo_id":    None,
-    "df_csv":        None,
-    "contexto_csv":  None,
-    "sugestoes":     [],
-    "sugestao_ativa": None,
-    "vectorstore":   None,
-    "insights_pdf":  [],
-    "show_sql":      False,
-    "session_id":    str(uuid.uuid4()),
+    "tipo_arquivo":    None,   # "csv" | "pdf"
+    "arquivo_nome":    None,
+    "arquivo_id":      None,
+    "df_csv":          None,
+    "contexto_csv":    None,
+    "sugestoes":       [],
+    "sugestao_ativa":  None,
+    "vectorstore":     None,
+    "vs_dir":          None,   # path do dir temporário do Chroma
+    "insights_pdf":    [],
+    "show_sql":        False,
+    "session_id":      str(uuid.uuid4()),
     "_mcp_state_file": None,
 }
 for k, v in defaults.items():
@@ -137,7 +138,6 @@ with st.sidebar:
         help="CSV → análise via DuckDB + SQL  |  PDF → embeddings + RAG",
     )
 
-    # ── Processamento do upload ────────────────────────────────────────────
     if arquivo:
         file_id = _file_id(arquivo.name, arquivo.size)
 
@@ -153,23 +153,22 @@ with st.sidebar:
                 st.session_state.tipo_arquivo = "csv"
                 try:
                     with st.spinner("🔍 Analisando CSV..."):
-                        df_bruto  = pd.read_csv(arquivo)
-                        contexto  = analisar_csv(df_bruto)
-                        st.session_state.df_csv      = contexto["df_convertido"]
+                        df_bruto = pd.read_csv(arquivo)
+                        contexto = analisar_csv(df_bruto)
+                        st.session_state.df_csv       = contexto["df_convertido"]
                         st.session_state.contexto_csv = contexto
 
-                    # Salva parquet temporário para o mcp_server
                     tmp_parquet = tempfile.NamedTemporaryFile(suffix=".parquet", delete=False)
                     contexto["df_convertido"].to_parquet(tmp_parquet.name, index=False)
 
                     _gravar_estado_mcp({
-                        "tipo":         "csv",
-                        "nome":         arquivo.name,
-                        "tamanho_bytes": arquivo.size,
-                        "n_linhas":     contexto["n_linhas"],
-                        "n_colunas":    contexto["n_colunas"],
-                        "colunas":      list(contexto["colunas"].keys()),
-                        "csv_path":     tmp_parquet.name,
+                        "tipo":             "csv",
+                        "nome":             arquivo.name,
+                        "tamanho_bytes":    arquivo.size,
+                        "n_linhas":         contexto["n_linhas"],
+                        "n_colunas":        contexto["n_colunas"],
+                        "colunas":          list(contexto["colunas"].keys()),
+                        "csv_path":         tmp_parquet.name,
                         "vectorstore_path": None,
                     })
                     st.success(
@@ -182,27 +181,23 @@ with st.sidebar:
             elif ext == ".pdf":
                 st.session_state.tipo_arquivo = "pdf"
                 try:
-                    vs_path = _vs_path(file_id)
-
                     with st.spinner("📄 Vetorizando PDF... (pode demorar na primeira vez)"):
-                        # Salva PDF em disco para o vectorstore.py processar
                         tmp_pdf = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
                         tmp_pdf.write(arquivo.read())
                         tmp_pdf.close()
 
-                        # Importação lazy — vectorstore.py é pesado
-                        from vectorstore import build_vectorstore, get_embeddings
+                        from vectorstore import build_vectorstore
 
-                        embeddings   = get_embeddings()
-                        n_chunks, vs = build_vectorstore(tmp_pdf.name, vs_path, embeddings)
+                        n_chunks, vs, vs_dir = build_vectorstore(tmp_pdf.name)
                         st.session_state.vectorstore = vs
+                        st.session_state.vs_dir      = vs_dir
 
                     _gravar_estado_mcp({
                         "tipo":             "pdf",
                         "nome":             arquivo.name,
                         "tamanho_bytes":    arquivo.size,
                         "n_chunks":         n_chunks,
-                        "vectorstore_path": vs_path,
+                        "vectorstore_path": vs_dir,   # MCP acessa via esse path
                         "csv_path":         None,
                     })
                     st.success(f"✅ PDF vetorizado — {n_chunks} chunks")
@@ -242,11 +237,10 @@ if tipo is None:
 # ══════════════════════════════════════════════════════════════════════════════
 
 if tipo == "csv":
-    contexto = st.session_state.contexto_csv
-    df_csv   = st.session_state.df_csv
+    contexto  = st.session_state.contexto_csv
+    df_csv    = st.session_state.df_csv
     sugestoes = st.session_state.sugestoes
 
-    # ── Painel de contexto ─────────────────────────────────────────────────
     with st.expander("🔍 Estrutura do CSV", expanded=True):
         c1, c2 = st.columns(2)
         c1.metric("Linhas",  f"{contexto['n_linhas']:,}")
@@ -265,23 +259,26 @@ if tipo == "csv":
                 detalhe = f"{vals}{'...' if info['truncado'] else ''}"
             else:
                 detalhe = f"{info['n_unicos']} valores únicos"
-            rows.append({"Coluna": col, "Tipo": tipo_col, "Detalhe": detalhe, "Nulos": info["nulos"]})
+            rows.append({
+                "Coluna":  col,
+                "Tipo":    tipo_col,
+                "Detalhe": detalhe,
+                "Nulos":   info["nulos"],
+            })
 
         st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
     with st.expander("👀 Primeiras linhas"):
         st.dataframe(df_csv.head(10), use_container_width=True)
 
-    # ── Sugestões ──────────────────────────────────────────────────────────
     st.subheader("💡 Análises sugeridas")
     col_btn, _ = st.columns([1, 3])
 
     with col_btn:
-        label = "✨ Gerar sugestões" if not sugestoes else "🔄 Regenerar"
+        label  = "✨ Gerar sugestões" if not sugestoes else "🔄 Regenerar"
         forcar = st.button(label, type="primary", use_container_width=True)
 
     if forcar:
-        # Invalida cache se regenerando
         if sugestoes:
             cache_manager.invalidar_cache_insights(
                 st.session_state.arquivo_nome,
@@ -295,7 +292,7 @@ if tipo == "csv":
                 file_name=st.session_state.arquivo_nome,
                 forcar=forcar and bool(sugestoes),
             )
-            st.session_state.sugestoes  = novas
+            st.session_state.sugestoes      = novas
             st.session_state.sugestao_ativa = None
             sugestoes = novas
 
@@ -303,7 +300,6 @@ if tipo == "csv":
         if forcar:
             st.warning("⚠️ Não foi possível gerar sugestões. Verifique se o CSV tem dados suficientes.")
     else:
-        # Cache hit feedback
         cached = cache_manager.get_cached_insights(
             st.session_state.arquivo_nome,
             contexto["n_linhas"],
@@ -325,7 +321,6 @@ if tipo == "csv":
                     st.session_state.sugestao_ativa = i
                     st.rerun()
 
-    # ── Resultado ──────────────────────────────────────────────────────────
     idx = st.session_state.sugestao_ativa
     if idx is not None and sugestoes:
         sug = sugestoes[idx]
@@ -359,13 +354,11 @@ elif tipo == "pdf":
     vs           = st.session_state.vectorstore
     insights     = st.session_state.insights_pdf
     arquivo_nome = st.session_state.arquivo_nome
-    arquivo_id   = st.session_state.arquivo_id
 
     if vs is None:
         st.warning("⚠️ Vectorstore não encontrado. Tente enviar o arquivo novamente.")
         st.stop()
 
-    # ── Insights automáticos ───────────────────────────────────────────────
     st.subheader(f"📄 {arquivo_nome}")
     st.subheader("💡 Insights do documento")
 
@@ -377,11 +370,13 @@ elif tipo == "pdf":
                 novos = gerar_insights_pdf(vs)
                 st.session_state.insights_pdf = novos
                 insights = novos
-            query_logger.log(modo="pdf", extra={"arquivo": arquivo_nome, "n_insights": len(novos)})
+            query_logger.log(
+                modo="pdf",
+                extra={"arquivo": arquivo_nome, "n_insights": len(novos)},
+            )
 
     if not insights:
-        if not st.session_state.get("_insights_tentado"):
-            st.info("📌 Clique em 'Gerar insights' para analisar o documento.")
+        st.info("📌 Clique em 'Gerar insights' para analisar o documento.")
     else:
         cols = st.columns(2)
         for i, ins in enumerate(insights):
@@ -390,7 +385,6 @@ elif tipo == "pdf":
                     st.markdown(f"**{ins['titulo']}**")
                     st.caption(ins["descricao"])
 
-    # ── Placeholder para o chat livre (fase 2) ─────────────────────────────
     st.divider()
     st.caption(
         "💬 Chat livre sobre o documento — em breve. "

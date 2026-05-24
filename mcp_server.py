@@ -1,34 +1,24 @@
 """
 mcp_server.py — Servidor MCP via stdio (FastMCP).
 
-Expõe as ferramentas do doc-analista para qualquer cliente MCP compatível
-(Claude Desktop, VS Code, ou o próprio agente Groq via langchain-mcp-adapters).
-
+Expõe as ferramentas do doc-analista para qualquer cliente MCP compatível.
 Transporte: stdio — spawneado como subprocess pelo app.py.
-NÃO adicionar ao docker-compose; roda como processo filho do Streamlit.
 
-Ferramentas expostas:
+Ferramentas:
     query_csv        → SQL sobre o CSV da sessão (DuckDB :memory:)
-    search_pdf       → busca semântica no PDF vetorizado
+    search_pdf       → busca semântica no PDF (Chroma em vs_dir temporário)
     get_doc_summary  → metadados do documento atual
 """
 
 import json
 import logging
+import os
 
 from mcp.server.fastmcp import FastMCP
 
 log = logging.getLogger(__name__)
 
 mcp = FastMCP("doc-analista")
-
-
-# ── Estado compartilhado (preenchido pelo app.py antes de spawnar) ────────────
-# O app.py grava um JSON temporário com o estado da sessão que o servidor lê.
-# Alternativa mais simples que passar tudo via args de linha de comando.
-
-import os
-import tempfile
 
 _STATE_FILE = os.environ.get("DOC_ANALISTA_STATE", "")
 
@@ -58,15 +48,15 @@ def query_csv(sql: str) -> dict:
     import duckdb
     import pandas as pd
 
-    state = _load_state()
+    state    = _load_state()
     csv_path = state.get("csv_path")
 
     if not csv_path or not os.path.exists(csv_path):
         return {"erro": "Nenhum CSV carregado na sessão atual."}
 
     try:
-        df  = pd.read_parquet(csv_path)   # app.py salva como parquet temporário
-        con = duckdb.connect(":memory:")
+        df        = pd.read_parquet(csv_path)
+        con       = duckdb.connect(":memory:")
         con.register("dados", df)
         resultado = con.execute(sql).df()
         con.close()
@@ -83,30 +73,26 @@ def search_pdf(query: str, k: int = 4) -> list[str]:
     """
     Busca semântica no PDF vetorizado da sessão atual.
     Retorna os k trechos mais relevantes para a query.
-    Use para perguntas conceituais, qualitativas ou que requerem leitura do documento.
 
-    Exemplos de query:
+    Exemplos:
         "quais são os riscos mencionados"
         "metodologia utilizada"
         "conclusões do relatório"
     """
-    state = _load_state()
+    state   = _load_state()
     vs_path = state.get("vectorstore_path")
 
-    if not vs_path:
+    if not vs_path or not os.path.exists(vs_path):
         return ["Nenhum PDF vetorizado na sessão atual."]
 
     try:
         from langchain_community.vectorstores import Chroma
-        from langchain_community.embeddings import HuggingFaceEmbeddings
-        from config import HF_MODEL_PATH
+        from vectorstore import get_embeddings
 
-        embeddings = HuggingFaceEmbeddings(
-            model_name=HF_MODEL_PATH,
-            model_kwargs={"device": "cpu"},
-        )
-        vs   = Chroma(persist_directory=vs_path, embedding_function=embeddings)
-        docs = vs.similarity_search(query, k=k)
+        # Reutiliza o mesmo singleton de embeddings — modelo já está carregado
+        embeddings = get_embeddings()
+        vs         = Chroma(persist_directory=vs_path, embedding_function=embeddings)
+        docs       = vs.similarity_search(query, k=k)
         return [d.page_content for d in docs]
     except Exception as e:
         log.error(f"[MCP] search_pdf erro: {e}")
@@ -120,8 +106,6 @@ def get_doc_summary() -> dict:
     """
     Retorna metadados do documento atualmente carregado na sessão.
     Útil para entender o que está disponível antes de escolher a ferramenta certa.
-
-    Retorna tipo do documento (csv|pdf), nome, e stats básicos.
     """
     state = _load_state()
 
@@ -129,9 +113,9 @@ def get_doc_summary() -> dict:
         return {"tipo": None, "mensagem": "Nenhum documento carregado."}
 
     summary = {
-        "tipo":      state.get("tipo"),          # "csv" | "pdf"
-        "nome":      state.get("nome"),
-        "tamanho":   state.get("tamanho_bytes"),
+        "tipo":     state.get("tipo"),
+        "nome":     state.get("nome"),
+        "tamanho":  state.get("tamanho_bytes"),
     }
 
     if state.get("tipo") == "csv":
@@ -140,8 +124,7 @@ def get_doc_summary() -> dict:
         summary["colunas"]   = state.get("colunas", [])
 
     elif state.get("tipo") == "pdf":
-        summary["n_paginas"] = state.get("n_paginas")
-        summary["n_chunks"]  = state.get("n_chunks")
+        summary["n_chunks"] = state.get("n_chunks")
 
     return summary
 
