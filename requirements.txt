@@ -1,0 +1,35 @@
+# ── Interface ─────────────────────────────────────────────────────────────
+streamlit>=1.35.0
+
+# ── LLM ───────────────────────────────────────────────────────────────────
+langchain>=0.2.0
+langchain-community>=0.2.0
+langchain-groq>=0.1.6
+langchain-text-splitters>=0.2.0
+
+# ── MCP ───────────────────────────────────────────────────────────────────
+mcp[cli]>=1.0.0
+langchain-mcp-adapters>=0.1.0
+
+# ── Embeddings (modelo local HF) ──────────────────────────────────────────
+# torch NÃO está aqui — instalado antes no Dockerfile como CPU-only
+# para evitar download de 530 MB da versão CUDA padrão
+sentence-transformers>=3.0.0
+
+# ── Vectorstore ───────────────────────────────────────────────────────────
+chromadb>=0.5.0
+
+# ── PDF ───────────────────────────────────────────────────────────────────
+pymupdf>=1.24.0
+pytesseract>=0.3.13
+
+# ── CSV / dados ───────────────────────────────────────────────────────────
+pandas>=2.0.0
+duckdb>=0.10.0
+pyarrow>=14.0.0
+
+# ── Redis ─────────────────────────────────────────────────────────────────
+redis>=5.0.0
+
+# ── Config ────────────────────────────────────────────────────────────────
+python-decouple>=3.8
