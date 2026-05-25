@@ -3,7 +3,7 @@ langchain==0.3.25
 langchain-classic==1.0.7
 langchain-community==0.3.24
 langchain-groq==0.3.2
-langchain-text-splitters==1.1.2
+langchain-text-splitters>=0.3.8,<1.0.0
 mcp>=1.0.0
 langchain-mcp-adapters>=0.1.0
 sentence-transformers>=2.7.0,<3.0.0
