@@ -1,25 +1,20 @@
 """
 chains.py — RAG chain para análise de PDF.
 
-Adaptado do Chatbot WhatsApp:
-  - Remove toda dependência de WhatsApp / buffer / Evolution API
-  - Adiciona gerar_insights_pdf() que usa o vectorstore como contexto
-    para produzir insights automáticos (equivalente ao gerar_sugestoes() do CSV)
-  - Mantém get_conversational_rag_chain() para o chat livre (fase 2)
-
 Fluxo PDF:
     vectorstore → retriever → history_aware_retriever (Groq)
     → stuff_documents_chain (Groq) → resposta em PT-BR
 """
 
+import json
 import logging
+import re
 
-from langchain.chains import create_retrieval_chain
-from langchain.chains.combine_documents import create_stuff_documents_chain
-from langchain_community.vectorstores import Chroma
+from langchain_classic.chains import create_history_aware_retriever, create_retrieval_chain
+from langchain_classic.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_groq import ChatGroq
-from langchain.chains import create_history_aware_retriever
+from langchain_community.vectorstores import Chroma
 
 from config import MODEL_NAME, MODEL_TEMPERATURE, MODEL_MAX_TOKENS
 from memory import get_session_history
@@ -27,12 +22,9 @@ from prompts import context_prompt, qa_prompt
 
 log = logging.getLogger(__name__)
 
-# Singleton da chain base — recriado quando o vectorstore muda (novo PDF)
 _rag_base_chain = None
-_current_vectorstore_id: str | None = None  # controla quando recriar
+_current_vectorstore_id: str | None = None
 
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _build_llm() -> ChatGroq:
     return ChatGroq(
@@ -42,23 +34,14 @@ def _build_llm() -> ChatGroq:
     )
 
 
-# ── Chain base (singleton por vectorstore) ────────────────────────────────────
-
 def get_base_rag_chain(vectorstore: Chroma, vectorstore_id: str):
-    """
-    Inicializa LLM + retriever + chain RAG.
-    Recria o singleton apenas quando o vectorstore_id muda
-    (ou seja, quando o usuário fez upload de um novo PDF).
-
-    vectorstore_id: qualquer string que identifique unicamente o documento
-                    atual (ex: hash do nome + tamanho do arquivo).
-    """
+    """Singleton por vectorstore_id — recria apenas quando o PDF muda."""
     global _rag_base_chain, _current_vectorstore_id
 
     if _rag_base_chain is not None and _current_vectorstore_id == vectorstore_id:
         return _rag_base_chain
 
-    log.info(f"[CHAINS] Inicializando RAG chain para vectorstore '{vectorstore_id}'...")
+    log.info(f"[CHAINS] Inicializando RAG chain para '{vectorstore_id}'...")
 
     llm       = _build_llm()
     retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
@@ -76,10 +59,7 @@ def get_base_rag_chain(vectorstore: Chroma, vectorstore_id: str):
 def get_conversational_rag_chain(
     vectorstore: Chroma, vectorstore_id: str
 ) -> RunnableWithMessageHistory:
-    """
-    Wrapper com histórico Redis isolado por session_id.
-    Usado pelo chat livre (fase 2).
-    """
+    """Wrapper com histórico Redis — fase 2 (chat livre)."""
     rag_chain = get_base_rag_chain(vectorstore, vectorstore_id)
     return RunnableWithMessageHistory(
         runnable=rag_chain,
@@ -90,7 +70,7 @@ def get_conversational_rag_chain(
     )
 
 
-# ── Insights automáticos do PDF ───────────────────────────────────────────────
+# ── Insights automáticos ──────────────────────────────────────────────────────
 
 _INSIGHTS_PROMPT = """Você é um analista de documentos especialista.
 Analise o conteúdo abaixo (extraído de um PDF) e gere EXATAMENTE 4 insights
@@ -113,26 +93,18 @@ JSON:"""
 
 def gerar_insights_pdf(vectorstore: Chroma, n_chunks: int = 8) -> list[dict]:
     """
-    Recupera os chunks mais representativos do PDF e pede ao Groq
-    para gerar 4 insights automáticos.
-
-    Equivalente ao gerar_sugestoes() do fluxo CSV, mas sem SQL —
-    usa busca semântica com query genérica para cobrir o documento.
+    Recupera chunks representativos do PDF e pede ao Groq 4 insights automáticos.
+    Equivalente ao gerar_sugestoes() do fluxo CSV.
     """
-    import json
-    import re
-
     try:
-        # Busca ampla para pegar chunks variados do documento
         docs = vectorstore.similarity_search(
             "resumo geral conteúdo principal pontos importantes",
             k=n_chunks,
         )
         context = "\n\n---\n\n".join(d.page_content for d in docs)
 
-        llm    = _build_llm()
-        prompt = _INSIGHTS_PROMPT.format(context=context)
-
+        llm      = _build_llm()
+        prompt   = _INSIGHTS_PROMPT.format(context=context)
         resposta = llm.invoke(prompt)
         texto    = resposta.content.strip()
         texto    = re.sub(r"```(?:json)?", "", texto).replace("```", "").strip()
