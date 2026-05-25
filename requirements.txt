@@ -1,5 +1,5 @@
 streamlit>=1.35.0
-langchain==0.3.25
+langchain>=0.4.0  
 langchain-classic==1.0.7
 langchain-community==0.3.24
 langchain-groq==0.3.2
