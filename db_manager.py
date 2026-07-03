@@ -13,6 +13,7 @@ Por que centralizar aqui?
 """
 
 import logging
+import re
 from pathlib import Path
 
 import duckdb
@@ -141,13 +142,10 @@ def execute_sql(sql: str) -> tuple[pd.DataFrame | None, str | None]:
         - Timeout implícito da conexão DuckDB.
         - Limite de linhas retornadas (controlado pelo schema + pelo SQL).
     """
-    # Sanitização mínima — bloqueia comandos de escrita óbvios
-    # O read_only já faz isso no nível do DuckDB, mas a mensagem fica mais clara
-    sql_upper = sql.strip().upper()
-    comandos_proibidos = ["INSERT", "UPDATE", "DELETE", "DROP", "CREATE", "ALTER", "TRUNCATE"]
-    for cmd in comandos_proibidos:
-        if sql_upper.startswith(cmd):
-            return None, f"Comando '{cmd}' não permitido em modo de leitura."
+    # Whitelist: apenas comandos de leitura são permitidos
+    # Mais seguro que blacklist — só aprova o que é explicitamente conhecido
+    if not re.match(r'^\s*(SELECT|WITH|SHOW|DESCRIBE|EXPLAIN)\b', sql, re.I):
+        return None, "Apenas comandos de leitura (SELECT, WITH) são permitidos."
 
     try:
         with get_connection(read_only=True) as con:

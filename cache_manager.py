@@ -19,13 +19,15 @@ Estratégia de chave:
 
 import hashlib
 import logging
+from pathlib import Path
 
 import diskcache
 
 log = logging.getLogger(__name__)
 
 # ── Configuração ───────────────────────────────────────────────────────────────
-CACHE_DIR = ".cache"          # diretório de persistência (montar como volume no Docker)
+BASE_DIR = Path(__file__).resolve().parent
+CACHE_DIR = str(BASE_DIR / ".cache")  # diretório de persistência (montar como volume no Docker)
 TTL_HORAS = 6                 # tempo de vida padrão das entradas (em horas)
 TTL_SEGUNDOS = TTL_HORAS * 3600
 

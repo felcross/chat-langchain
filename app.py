@@ -55,8 +55,9 @@ query_logger = QueryLogger()
 # 1. LLM
 # ══════════════════════════════════════════════════════════════════════════════
 
+@st.cache_resource
 def get_llm() -> ChatGroq:
-    """Instancia o LLM Groq. temperature=0 para SQL determinístico."""
+    """Instancia o LLM Groq. temperature=0 para SQL determinístico. Singleton via cache_resource."""
     return ChatGroq(model=GROQ_MODEL, temperature=0, max_tokens=1024)
 
 
