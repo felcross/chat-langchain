@@ -16,6 +16,7 @@ A função `run_etl()` orquestra tudo e registra a data/hora da última atualiza
 
 import datetime
 import logging
+import time
 
 import duckdb
 import pandas as pd
@@ -63,9 +64,17 @@ def _fetch_sgs(codigo: int, data_ini: str, data_fim: str) -> pd.DataFrame:
         "dataInicial": data_ini,
         "dataFinal":   data_fim,
     }
+    for tentativa in range(3):
+        try:
+            resp = requests.get(url, params=params, timeout=15)
+            resp.raise_for_status()
+            break
+        except requests.exceptions.RequestException:
+            if tentativa < 2:
+                time.sleep(1 * (2 ** tentativa))
+            else:
+                raise
     try:
-        resp = requests.get(url, params=params, timeout=15)
-        resp.raise_for_status()
         df = pd.DataFrame(resp.json())
         # A API retorna 'data' como string "dd/MM/yyyy" e 'valor' como string
         df["data"]  = pd.to_datetime(df["data"], format="%d/%m/%Y")

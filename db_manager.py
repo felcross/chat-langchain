@@ -150,6 +150,8 @@ def execute_sql(sql: str) -> tuple[pd.DataFrame | None, str | None]:
     try:
         with get_connection(read_only=True) as con:
             df = con.execute(sql).df()
+            if len(df) > 100:
+                df = df.head(100)
             return df, None
     except duckdb.Error as e:
         log.warning(f"Erro DuckDB ao executar SQL: {e}\nSQL: {sql}")
