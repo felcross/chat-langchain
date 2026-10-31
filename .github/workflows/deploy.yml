@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Executar comandos via SSH
-        uses: appleboy/ssh-action@master
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
@@ -17,5 +17,6 @@ jobs:
           script: |
             cd ~/portfolio/finance-bot
             git pull origin main
-            # O build --no-cache garante que ele pegue o código novo se o cache do Docker falhar
+            # --build reconstrói a imagem com o código novo (o COPY . . invalida o cache)
+            # e recria o container — já é o restart do deploy, não precisa de restart à parte
             docker compose up -d --build

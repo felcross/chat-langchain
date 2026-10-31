@@ -46,7 +46,7 @@ log = logging.getLogger(__name__)
 
 os.environ["GROQ_API_KEY"] = config("GROQ_API_KEY")
 
-GROQ_MODEL = "llama-3.3-70b-versatile"
+GROQ_MODEL = "openai/gpt-oss-120b"
 
 query_logger = QueryLogger()
 
@@ -58,7 +58,8 @@ query_logger = QueryLogger()
 @st.cache_resource
 def get_llm() -> ChatGroq:
     """Instancia o LLM Groq. temperature=0 para SQL determinístico. Singleton via cache_resource."""
-    return ChatGroq(model=GROQ_MODEL, temperature=0, max_tokens=1024)
+    # max_tokens folgado: gpt-oss é modelo de reasoning e consome tokens pensando antes do content
+    return ChatGroq(model=GROQ_MODEL, temperature=0, max_tokens=2048)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
